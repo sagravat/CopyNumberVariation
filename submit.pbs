@@ -1,0 +1,15 @@
+#PBS -q class_long
+#PBS -l nodes=6:sixcore
+#PBS -l walltime=06:00:00 
+#PBS -N CNV
+#PBS -e err.out
+#PBS -o cnv.out
+export OMPI_MCA_mpi_yield_when_idle=0 
+cd $PBS_O_WORKDIR 
+date 
+hostname 
+echo $PWD 
+cat $PBS_NODEFILE 
+echo -e "\n\n" 
+time mpirun -np 192 /nethome/sagravat6/cnv/rho
+# eof
