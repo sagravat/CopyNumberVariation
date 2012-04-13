@@ -49,28 +49,36 @@ double stddev(double *v, double avg, int n) {
     return sqrt(sum/(n-1));
 }
 
-double * sub(double *v, double avg, int n) {
+void sub(double *v, double avg, int n, double *result) {
 
-    double * result = (double*) calloc(n, sizeof(double));
+    //double * result = (double*) calloc(n, sizeof(double));
+    //double *out = NULL;
+    //double result[n];
 
     for (int i = 0; i < n; i++) {
         result[i] = v[i] - avg;
         //printf("%f,%f, %f\n", v[i], avg, result[i]);
     }
 
-    return result;
+    //out = result;
+    //return out;
+    //return result;
 }
 
-double * prod(double *x, double *y, int n) {
+void prod(double *x, double *y, int n, double *result) {
 
-    double * result = (double*) calloc(n, sizeof(double));
+    //double * result = (double*) calloc(n, sizeof(double));
+    //double result[n];
+    //double *out = NULL;
 
     for (int i = 0; i < n; i++) {
         result[i] = x[i]*y[i];
         //printf("%f,%f, %f\n", x[i], y[i], result[i]);
     }
 
-    return result;
+    //out = result;
+    //return out;
+    //return result;
 }
 
 double sum(double *v, int n) {
@@ -91,33 +99,38 @@ double pvalue(double r, int n) {
 
 }
 
-double * getrowvec(double **m, int row, int nc) {
+void getrowvec(double **m, int row, int nc, double *result) {
 
-    double * result = (double*) calloc(nc+1, sizeof(double));
+    //double *result = (double*) calloc(nc+1, sizeof(double));
+    //double result[nc+1];
+    //double *out = NULL;
 
-    printf("getrowvec: %d, nc =%d\n", row, nc);
     int i;
-    for (i = 0; i < nc; i++) {
+    for (int i = 0; i < nc; i++) {
         result[i] = m[row][i];
-        //printf("%f,%d, %f\n", result[i], row, m[row][i]);
-
     }
-    result[i] = row;
+    result[nc] = row;
 
-    return result;
+    //out = result;
+    //return out;
+    //return result;
 }
 
-double * getcolvec(double **m, int col, int nr) {
+void getcolvec(double **m, int col, int nr, double *result) {
 
-    double * result = (double*) calloc(nr+1, sizeof(double));
-    if (col == NUM_COLS)
-        printf("getcolvec: %d\n", col);
+    //double *result = (double*) calloc(nr+1, sizeof(double));
+    //double result[nr+1];
+    //double *out = NULL;
 
     int i;
-    for (i = 0; i < nr; i++) 
+    for (i = 0; i < nr; i++) {
         result[i] = m[i][col];
-    result[i] = col;
-    return result;
+    }
+    result[nr] = col;
+
+    //out = result;
+    //return out;
+    //return result;
 }
 
 
@@ -126,10 +139,11 @@ void master(void);
 void worker(void);
 int get_next_row(void);
 int get_next_col(void);
-double * do_work(double *x, double *y);
+void do_work(double *x, double *y, double *result);
 
 int current_row, current_col, work_completed;
 double starttime, endtime;
+double *xcentered, *ycentered, *prod_result;
 
 enum {
     tag_work,
@@ -143,6 +157,10 @@ main(int argc, char **argv)
 
   MPI_Init(&argc, &argv);
   MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+  xcentered   = (double*)calloc(BUFFER_SIZE,sizeof(double));;
+  ycentered   = (double*)calloc(BUFFER_SIZE,sizeof(double));;
+  prod_result = (double*)calloc(BUFFER_SIZE,sizeof(double));;
+
   //printf("starting up thread %d\n", myrank);
   if (myrank == 0) {
     master();
@@ -160,10 +178,14 @@ main(int argc, char **argv)
 void
 master(void)
 {
+  double *result = (double*)calloc(3,sizeof(double));
+  double **RHO = NULL;
+  double *x = (double*) calloc(BUFFER_SIZE+1, sizeof(double));
+  double *y = (double*) calloc(BUFFER_SIZE+1, sizeof(double));
+
   int ntasks, rank;
   int row, col;
-  double *result = (double*)calloc(3,sizeof(double));
-  double **X = NULL, **Y = NULL, **RHO = NULL;
+
   MPI_Status status;
   current_row = 0, current_col = 0, work_completed = 0;
 
@@ -183,16 +205,22 @@ master(void)
                 probe_ids[num_lines-1] = atoi(strdup(line));
         }
         fclose(f);
+        //MPI_File log_file;
+        //MPI_File_open(MPI_COMM_WORLD, "/nethome/sagrava/CopyNumberVariation/checkpoint.txt",
+                //MPI_MODE_WRONLY | MPI_MODE_CREATE | MPI_MODE_APPEND,
+                //MPI_INFO_NULL, &log_file);
+
+        //MPI_File_set_view(log_file, MPI_DISPLACEMENT_CURRENT, MPI_CHAR,
+                                //MPI_CHAR, "external32", MPI_INFO_NULL);
 
         unsigned long x_nr, x_nc, y_nr, y_nc;
 
-        X = h5_read("ge_cnv.h5", 1, "/X",         &x_nr, &x_nc);
-        Y = h5_read("filtered_probes.h5", 1, "/FilteredProbes", &y_nr, &y_nc);
+        double **X = h5_read("ge_cnv.h5", 1, "/X",         &x_nr, &x_nc);
+        double **Y = h5_read("filtered_probes.h5", 1, "/FilteredProbes", &y_nr, &y_nc);
 
         printf("loaded X, num rows = %d, num cols = %d\n", x_nr, x_nc);
         printf("loaded Y, num rows = %d, num cols = %d\n", y_nr, y_nc);
 
-        //x_nr = 10000, y_nr = 300, x_nc = 300, y_nc = 50000;
         unsigned long total_mem = (x_nr * y_nc);
         RHO = (double**) malloc(x_nr*sizeof(double*));
         if (RHO == NULL) {
@@ -212,8 +240,14 @@ master(void)
     /* Find the next item of work to do */
     row = get_next_row();
     col = get_next_col();
-    double *x = getrowvec(X, row, x_nc);
-    double *y = getcolvec(Y, col, y_nr);
+    //printf("row = %d, col = %d\n", row, col);
+    getrowvec(X, row, x_nc, x);
+    //if (rank == 1)
+        //for (int i = 0; i < BUFFER_SIZE; i++)
+                //printf("x[%d] = %f\n", i, x[i]);
+    getcolvec(Y, col, y_nr, y);
+    //MPI_Barrier( MPI_COMM_WORLD ) ;
+   
     //printf("************** got vecs %f, %f\n", x[BUFFER_SIZE], y[BUFFER_SIZE]);
     //printf("[master] got next work item %d\n", work);
 
@@ -231,6 +265,9 @@ master(void)
              rank,              /* destination process rank */
              WORKTAG,           /* user chosen message tag */
              MPI_COMM_WORLD);   /* default communicator */
+
+     free(x);
+     free(y);
   }
 
   /* Loop over getting new work requests until there is no more work
@@ -252,9 +289,13 @@ master(void)
             int ix = (int)result[1];
             int iy = (int)result[2];
             RHO[ix][iy] = result[0];
-        if (work_completed % 1000 == 0) 
-            printf("result[%d,%d] from %d = %f\n", 
+        if (work_completed % 10000 == 0) {
+            printf("work = %d, result[%d,%d] from %d = %f\n", work_completed,
                 (int)result[1], (int)result[2], status.MPI_SOURCE, result[0]);
+            //MPI_File_write_shared(log_file, log_str, strlen(log_str),
+                                        //MPI_CHAR, MPI_STATUS_IGNORE);
+
+        }
 
     /* Send the worker a new work unit */
 
@@ -262,9 +303,10 @@ master(void)
     //printf("[master] send row %d to rank %d\n", work, rank);
     row = get_next_row();
     col = get_next_col();
-    double *x = getrowvec(X, row, x_nc);
-    double *y = getcolvec(Y, col, y_nr);
-
+    //printf("row = %d, col = %d\n", row, col);
+    getrowvec(X, row, x_nc, x);
+    getcolvec(Y, col, y_nr, y);
+    //MPI_Barrier( MPI_COMM_WORLD ) ;
     MPI_Send(x,                /* message buffer */
              BUFFER_SIZE+1,       /* one data item */
              MPI_DOUBLE,        /* data item is an integer */
@@ -290,8 +332,8 @@ master(void)
             int iy = (int)result[2];
             RHO[ix][iy] = result[0];
 
-        if (work_completed % 1000 == 0) 
-            printf("result[%d,%d] from %d = %f\n", 
+        if (work_completed % 10000 == 0) 
+            printf("work = %d, result[%d,%d] from %d = %f\n", work_completed,
                 (int)result[1], (int)result[2], status.MPI_SOURCE, result[0]);
         //printf("result from %d = %f\n", status.MPI_SOURCE, result);
   }
@@ -304,6 +346,8 @@ master(void)
   }
 
   endtime   = MPI_Wtime();
+  free(x);
+  free(y);
   free(X[0]);
   free(X);
   free(Y[0]);
@@ -311,6 +355,7 @@ master(void)
   h5_write(RHO, NUM_ROWS, NUM_COLS, "rho.h5", "/rho");
   free(RHO[0]);
   free(RHO);
+  fclose(f);
   printf("work completed = %d\n", work_completed);
   printf("%d - %f\n",ntasks, endtime-starttime);
 }
@@ -321,8 +366,9 @@ worker(void)
 {
   double *x = (double*)calloc(BUFFER_SIZE+1,sizeof(double));
   double *y = (double*)calloc(BUFFER_SIZE+1,sizeof(double));
+  double *work_out= (double*)calloc(3,sizeof(double));;
+
   MPI_Status status;
-  double *result = (double*)calloc(3,sizeof(double));;
   int rank;
 
   memset(x, 0, BUFFER_SIZE);
@@ -338,11 +384,14 @@ worker(void)
     MPI_Recv(y, BUFFER_SIZE+1, MPI_DOUBLE, 0, MPI_ANY_TAG,
              MPI_COMM_WORLD, &status);
 
-    result = do_work(x, y);
+    do_work(x, y, work_out);
 
     /* Send the result back */
-    MPI_Send(result, 3, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+    MPI_Send(work_out, 3, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
   }
+  free(x);
+  free(y);
+  free(work_out);
 }
 
 
@@ -357,7 +406,6 @@ get_next_row(void)
     if (row >= NUM_ROWS-1) {
         current_row = 0;
     }
-    if (row == NUM_ROWS) printf("row = numrows\n");
     return row;
 }
 
@@ -370,29 +418,27 @@ get_next_col(void)
     return col;
 }
 
-double *
-do_work(double *x, double *y)
+void
+do_work(double *x, double *y, double *work_out)
 {
-    double *out = (double*)calloc(3,sizeof(double));;
 
     int x_nc = BUFFER_SIZE;
     int y_nr = BUFFER_SIZE;
     double avgx         = mean(x, x_nc);
-    double *xcentered   = sub(x, avgx, x_nc);
+    sub(x, avgx, x_nc, xcentered);
 
     double avgy         = mean(y, y_nr);
-    double *ycentered   = sub(y, avgy, y_nr);
+    sub(y, avgy, y_nr, ycentered);
 
-    double *result  = prod(xcentered, ycentered, x_nc);
-    double sum_prod = sum(result, x_nc);
+    prod(xcentered, ycentered, x_nc, prod_result);
+    double sum_prod = sum(prod_result, x_nc);
 
     double stdX = stddev(x, avgx, x_nc);
     double stdY = stddev(y, avgy, y_nr);
     double rho  = sum_prod/((x_nc-1)*(stdX*stdY));
 
-    out[0] = rho;
-    out[1] = x[BUFFER_SIZE];
-    out[2] = y[BUFFER_SIZE];
-    
-    return out;
+    work_out[0] = rho;
+    work_out[1] = x[BUFFER_SIZE];
+    work_out[2] = y[BUFFER_SIZE];
+
 }
