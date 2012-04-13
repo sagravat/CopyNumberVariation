@@ -173,8 +173,10 @@ main(int argc, char **argv)
     double **X = h5_read("ge_cnv.h5", 1, "/X",         &x_nr, &x_nc);
     double **Y = h5_read("filtered_probes.h5", 1, "/FilteredProbes", &y_nr, &y_nc);
 
-    printf("loaded X, num rows = %d, num cols = %d\n", x_nr, x_nc);
-    printf("loaded Y, num rows = %d, num cols = %d\n", y_nr, y_nc);
+    //printf("loaded X, num rows = %d, num cols = %d\n", x_nr, x_nc);
+    //printf("loaded Y, num rows = %d, num cols = %d\n", y_nr, y_nc);
+
+
 
     unsigned long total_mem = (x_nr * y_nc);
     double **RHO = (double**) malloc(x_nr*sizeof(double*));
@@ -202,7 +204,7 @@ main(int argc, char **argv)
     printf("offset = %d, for rank %d, with ntasks = %d, and BLOCK_SIZE = %d\n", 
                 offset, myrank, ntasks, BLOCK_SIZE);
     #pragma omp parallel for shared(X, Y, RHO, BLOCK_SIZE, offset, work_completed) private(probe,gene, tid)
-    for (gene = offset; gene < BLOCK_SIZE; gene++) {
+    for (gene = offset; gene < offset+BLOCK_SIZE; gene++) {
        for (probe = 0; probe < NUM_COLS; probe++) {
            double *x = getrowvec(X, gene, BUFFER_SIZE);
            double *y = getcolvec(Y, probe, BUFFER_SIZE);
@@ -223,7 +225,7 @@ main(int argc, char **argv)
 
            //RHO[gene][probe] = rho;
            
-           if (work_completed % 10000 == 0) {
+           if (work_completed % 100000 == 0) {
                tid = omp_get_thread_num();
                printf("rank = %d, work = %d, result[%d,%d] from %d = %f\n", myrank, work_completed,
                     gene, probe, tid, rho);
@@ -233,7 +235,9 @@ main(int argc, char **argv)
            free(y);
        }
     }
-    printf("********* FINISHED **********\n");
+    printf("********* %d FINISHED **********\n", myrank);
+    endtime   = MPI_Wtime();
+    printf("elapse time - %f\n",endtime-starttime);
     free(xcentered);
     free(ycentered);
     free(prod_result);
