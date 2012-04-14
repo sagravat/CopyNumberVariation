@@ -1,9 +1,9 @@
 /******************************************************************************
-* FILE: master.c
+* FILE: rho.cpp
 * DESCRIPTION:
-*   Processor Farm method for Mandelbrot set
-*   The row buffer contains the pixel information with the last index containing
-*   the row the worker just processed.
+*  Hybrid MPI/OpenMP implementation for calculating Pearson Correlation.
+*   
+*   
 * AUTHOR: Sanjay Agravat
 ******************************************************************************/
 #include <mpi.h>
@@ -24,10 +24,15 @@
 #define NUM_ROWS 20004
 #define NUM_COLS 78996
 //#define NUM_COLS 52664
-//#define NUM_ROWS 2
-//#define NUM_COLS 3
+//#define NUM_ROWS 10
+//#define NUM_COLS 20
 #define WORK_SIZE NUM_ROWS*NUM_COLS
 
+typedef struct {
+    double zscore;
+    int row;
+    int col;
+} sig_corr;
 
 double mean(double *v, int n) {
 
@@ -49,12 +54,33 @@ double stddev(double *v, double avg, int n) {
     return sqrt(sum/(n-1));
 }
 
-void sub(double *v, double avg, int n, double *result) {
+double *sub(double *v, double avg, int n) {
 
+    double *result = (double*)calloc(BUFFER_SIZE,sizeof(double));;
 
     for (int i = 0; i < n; i++) {
         result[i] = v[i] - avg;
     }
+
+    return result;
+}
+
+void sub(double *v, double avg, int n, double *result) {
+
+    for (int i = 0; i < n; i++) {
+        result[i] = v[i] - avg;
+    }
+}
+
+double *prod(double *x, double *y, int n) {
+
+    double *result = (double*)calloc(BUFFER_SIZE,sizeof(double));;
+    for (int i = 0; i < n; i++) {
+        result[i] = x[i]*y[i];
+    }
+
+    return result;
+
 }
 
 void prod(double *x, double *y, int n, double *result) {
@@ -77,7 +103,7 @@ double sum(double *v, int n) {
 
 }
 
-double pvalue(double r, int n) {
+double ztest(double r, int n) {
 
     return r * sqrt( (n-2)/( 1 - (r*r)));
 
@@ -85,26 +111,20 @@ double pvalue(double r, int n) {
 
 double* getrowvec(double **m, int row, int nc) {
 
-    double *result = (double*)calloc(BUFFER_SIZE+1,sizeof(double));;
+    double *result = (double*)calloc(BUFFER_SIZE,sizeof(double));;
 
-    //int i;
     memcpy(result, m[row], sizeof(double) * nc);
-    //for (int i = 0; i < nc; i++) {
-    //    result[i] = m[row][i];
-    //}
-    result[nc] = row;
     return result;
 
 }
 
 double* getcolvec(double **m, int col, int nr) {
 
-    double *result  = (double*)calloc(BUFFER_SIZE+1,sizeof(double));;
+    double *result  = (double*)calloc(BUFFER_SIZE,sizeof(double));;
     int i;
     for (i = 0; i < nr; i++) {
         result[i] = m[i][col];
     }
-    result[nr] = col;
 
     return result;
 
@@ -113,12 +133,7 @@ double* getcolvec(double **m, int col, int nr) {
 void getrowvec(double **m, int row, int nc, double *result) {
 
 
-    //int i;
     memcpy(result, m[row], sizeof(double) * nc);
-    //for (int i = 0; i < nc; i++) {
-    //    result[i] = m[row][i];
-    //}
-    result[nc] = row;
 
 }
 
@@ -128,10 +143,27 @@ void getcolvec(double **m, int col, int nr, double *result) {
     for (i = 0; i < nr; i++) {
         result[i] = m[i][col];
     }
-    result[nr] = col;
 
 }
 
+double **create2dArray(int rows, int cols) {
+
+    unsigned long total_mem = (rows * cols);
+    double **array = (double**) calloc(rows, sizeof(double*));
+    if (array == NULL) {
+        printf("error allcoating array\n");
+        exit(EXIT_FAILURE);
+    }
+    array[0] = (double*)calloc( total_mem, sizeof(double) );
+    if (array[0] == NULL) {
+        printf("error allcoating array\n");
+        exit(EXIT_FAILURE);
+    }
+    for (unsigned long i=1; i < rows; i++) array[i] = array[0]+i*cols;
+
+    return array;
+
+}
 
 
 int
@@ -179,72 +211,86 @@ main(int argc, char **argv)
 
 
     unsigned long total_mem = (x_nr * y_nc);
-    double **RHO = (double**) malloc(x_nr*sizeof(double*));
-    if (RHO == NULL) {
-        printf("error allcoating array\n");
-        exit(EXIT_FAILURE);
-    }
-    RHO[0] = (double*)malloc( total_mem*sizeof(double) );
-    if (RHO[0] == NULL) {
-        printf("error allcoating array\n");
-        exit(EXIT_FAILURE);
-    }
-    for (unsigned long i=1; i < x_nr; i++) RHO[i] = RHO[0]+i*y_nc;
+    double **RHO   = create2dArray(x_nr, y_nc);
+    //double **pvals = create2dArray(x_nr, y_nc);
+    
     int gene, probe, tid, work_completed;
     work_completed = 0;
-    double *x = (double*)calloc(BUFFER_SIZE+1,sizeof(double));;
-    double *y = (double*)calloc(BUFFER_SIZE+1,sizeof(double));;
 
-    double *xcentered   = (double*)calloc(BUFFER_SIZE,sizeof(double));;
-    double *ycentered   = (double*)calloc(BUFFER_SIZE,sizeof(double));;
-    double *prod_result = (double*)calloc(BUFFER_SIZE,sizeof(double));;
+    //double *x   = (double*)calloc(BUFFER_SIZE,sizeof(double));;
+    //double *y   = (double*)calloc(BUFFER_SIZE,sizeof(double));;
+    //double *xcentered   = (double*)calloc(BUFFER_SIZE,sizeof(double));;
+    //double *ycentered   = (double*)calloc(BUFFER_SIZE,sizeof(double));;
+    //double *prod_result = (double*)calloc(BUFFER_SIZE,sizeof(double));;
+    
     int BLOCK_SIZE = NUM_ROWS/ntasks;
     int offset = myrank*BLOCK_SIZE;
+    int STOP_IDX = offset+BLOCK_SIZE;
+    if (NUM_ROWS - STOP_IDX < BLOCK_SIZE)
+        STOP_IDX = NUM_ROWS;
 
-    printf("offset = %d, for rank %d, with ntasks = %d, and BLOCK_SIZE = %d\n", 
-                offset, myrank, ntasks, BLOCK_SIZE);
-    #pragma omp parallel for shared(X, Y, RHO, BLOCK_SIZE, offset, work_completed) private(probe,gene, tid)
-    for (gene = offset; gene < offset+BLOCK_SIZE; gene++) {
+    printf("offset = %d, for rank %d, with ntasks = %d, and BLOCK_SIZE = %d, STOP_IDX = %d\n", 
+                offset, myrank, ntasks, BLOCK_SIZE, STOP_IDX);
+
+    int num_sig_found = 0; 
+    //sig_corr *sig_corrs = (sig_corr*)malloc(1 * sizeof(sig_corr));
+
+    #pragma omp parallel \
+     for shared(X, Y, RHO, BLOCK_SIZE, offset, work_completed) \
+     private(probe,gene, tid)
+    for (gene = offset; gene < STOP_IDX; gene++) {
+    //for (gene = offset; gene < NUM_ROWS; gene++) {
        for (probe = 0; probe < NUM_COLS; probe++) {
            double *x = getrowvec(X, gene, BUFFER_SIZE);
            double *y = getcolvec(Y, probe, BUFFER_SIZE);
-           int x_nc = BUFFER_SIZE;
-           int y_nr = BUFFER_SIZE;
-           double avgx = mean(x, x_nc);
-           sub(x, avgx, x_nc, xcentered);
+
+           double avgx = mean(x, BUFFER_SIZE);
+           double *xcentered = sub(x, avgx, BUFFER_SIZE);
                     
-           double avgy = mean(y, y_nr);
-           sub(y, avgy, y_nr, ycentered);
+           double avgy = mean(y, BUFFER_SIZE);
+           double *ycentered = sub(y, avgy, BUFFER_SIZE);
            
-           prod(xcentered, ycentered, x_nc, prod_result);
-           double sum_prod = sum(prod_result, x_nc);
+           double * prod_result = prod(xcentered, ycentered, BUFFER_SIZE);
+           double sum_prod = sum(prod_result, BUFFER_SIZE);
 
-           double stdX = stddev(x, avgx, x_nc);
-           double stdY = stddev(y, avgy, y_nr);
-           double rho  = sum_prod/((x_nc-1)*(stdX*stdY));
+           double stdX = stddev(x, avgx, BUFFER_SIZE);
+           double stdY = stddev(y, avgy, BUFFER_SIZE);
+           double rho  = sum_prod/((BUFFER_SIZE-1)*(stdX*stdY));
 
-           //RHO[gene][probe] = rho;
-           
+           RHO[gene][probe] = rho;
+           /*
            if (work_completed % 100000 == 0) {
                tid = omp_get_thread_num();
                printf("rank = %d, work = %d, result[%d,%d] from %d = %f\n", myrank, work_completed,
                     gene, probe, tid, rho);
            }
+           */
            work_completed++;
            free(x);
            free(y);
+           free(xcentered);
+           free(ycentered);
+           free(prod_result);
+
        }
     }
     printf("********* %d FINISHED **********\n", myrank);
     endtime   = MPI_Wtime();
     printf("elapse time - %f\n",endtime-starttime);
-    free(xcentered);
-    free(ycentered);
-    free(prod_result);
     free(X[0]);
     free(X);
     free(Y[0]);
     free(Y);
+
+    #pragma omp parallel for shared(RHO)
+    for (int i = 0; i < NUM_ROWS; i++) {
+        for (int j = 0; j < NUM_COLS; j++) {
+            double zscore = ztest(RHO[i][j],BUFFER_SIZE);
+            if (zscore > 5.0) {
+                printf("%d,%d,%f,%f\n", i, j, zscore, RHO[i][j]);
+            }
+        }
+    }
     //h5_write(RHO, NUM_ROWS, NUM_COLS, "rho_omp.h5", "/rho");
     free(RHO[0]);
     free(RHO);
