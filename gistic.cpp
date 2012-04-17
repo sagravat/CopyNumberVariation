@@ -140,9 +140,10 @@ double*
 getampthresh(double **m, int sample, int start, int end, double thresh) {
 
     double *result = (double*)calloc(end-start,sizeof(double));
+    int k = 0;
     for (int i = start; i < end; i++) {
         if (m[sample][i] > thresh) 
-            result[i] = 1;
+            result[k++] = 1;
         //printf("m[%d][%d] = %f\n", sample, i, m[sample][i]);
     }
     return result;
@@ -205,6 +206,10 @@ create2dArray(int rows, int cols) {
         exit(EXIT_FAILURE);
     }
     for (unsigned long i=1; i < rows; i++) array[i] = array[0]+i*cols;
+
+    for (int i = 0; i < rows; i++)
+        for (int j = 0; j < cols; j++)
+            array[i][j] = 0;
 
     return array;
 
@@ -351,6 +356,56 @@ get_chr_probe_end(probeinfo *records) {
 
 }
 
+double **
+calc_amp_gscores(double **Y, int *chr_probes_start, int *chr_probes_end) {
+
+    //#pragma omp parallel \
+     //for shared(Y,  BLOCK_SIZE, offset, work_completed) \
+     //private(probe,sample, tid)
+    double **totalamp = create2dArray(22,7685);
+    for (int c = 0; c < 22; c++) {
+        int len = chr_probes_end[c] - chr_probes_start[c];
+        int start = chr_probes_start[c];
+        int end   = chr_probes_end[c];
+        //printf("len = %d, start = %d, end = %d\n", len, start, end);
+
+        double *amp = (double*)calloc(len,sizeof(double));
+
+        //for (sample = offset; sample < STOP_IDX; sample++) {
+        for (int sample = 0; sample < 383; sample++) {
+           double *y = getampthresh(Y, sample, start, end, .1);
+           for (int i = 0; i < len; i++) {
+               amp[i] += y[i];
+           }
+
+           free(y);
+        }
+
+        normalize(amp,len, BUFFER_SIZE);
+        for (int i = 0; i < len; i++) totalamp[c][i] = amp[i];
+        free(amp);
+        
+    }
+
+    return totalamp;
+}
+
+double
+calculate_max(double **ampscores, int rows, int cols) {
+
+    double max = -1;
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < 100; j++) {
+            if (ampscores[i][j] > max) {
+                max = ampscores[i][j];
+            }
+        }
+
+    }
+
+    return max;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -377,7 +432,7 @@ main(int argc, char **argv)
     probeinfo *records = get_probe_info();
     int *chr_probes_start = get_chr_probe_start(records);
     int *chr_probes_end  = get_chr_probe_end(records);
-    for (int i = 0; i < 22; i++ ) printf("%d\n", chr_probes_end[i] - chr_probes_start[i]);
+    //for (int i = 0; i < 22; i++ ) printf("%d\n", chr_probes_end[i] - chr_probes_start[i]);
 
     unsigned long y_nr, y_nc;
 
@@ -393,59 +448,20 @@ main(int argc, char **argv)
     if (NUM_ROWS - STOP_IDX < BLOCK_SIZE)
         STOP_IDX = NUM_ROWS;
 
-
-    int num_sig_found = 0; 
-
-    //#pragma omp parallel \
-     //for shared(Y,  BLOCK_SIZE, offset, work_completed) \
-     //private(probe,sample, tid)
-    double **totalamp = create2dArray(22,7685);
-    for (int c = 0; c < 22; c++) {
-        int len = chr_probes_end[c] - chr_probes_start[c];
-        int start = chr_probes_start[c];
-        int end   = chr_probes_end[c];
-        printf("len = %d, start = %d, end = %d\n", len, start, end);
-
-        double *amp = (double*)calloc(len,sizeof(double));
-
-        printf("allocated amp for c = %d\n", c);
-        printf ("offset = %d, stop idx = %d\n", offset, STOP_IDX);
-
-        for (sample = offset; sample < STOP_IDX; sample++) {
-           //(double **m, int sample, int start, int end, double thresh)
-           double *y = getampthresh(Y, sample, start, end, .1);
-           for (int i = 0; i < len; i++) {
-               amp[i] += y[i];
-           }
-
-           work_completed++;
-           free(y);
-        
-        }
-        printf("end sample %d\n", sample);
-        for (int i = 0; i < 10; i++) {
-            printf("amp[%d] = %f\n", i, amp[i]);
-        }
-        //normalize(amp,len, BUFFER_SIZE);
-        //for (int i = 0; i < 10; i++) {
-        //    printf("amp[%d] = %f\n", i, amp[i]);
-        //}
-        //for (int i = 0; i < 20; i++) totalamp[c][i] = amp[i];
-        
-        free(amp);
-        
-    }
+    double ** totalamp = calc_amp_gscores(Y, chr_probes_start, chr_probes_end);
+    double maxamp = calculate_max(totalamp, 22, 7685);
+    printf ("max amp = %f\n", maxamp);
 
     /*
     for (int c = 0; c < 22; c++) {
         for (int p = 0; p < 20; p++){
-            printf("[%d,%d]=%f,", c,p,totalamp[c][p]);
+            printf("%f,", c,p,totalamp[c][p]);
         }
         printf("\n");
     }
     */
 
-    //printf("********* %d FINISHED **********\n", myrank);
+    printf("********* %d FINISHED **********\n", myrank);
     endtime   = MPI_Wtime();
     printf("rank %d - elapse time - %f\n",myrank, endtime-starttime);
     free(Y[0]);
