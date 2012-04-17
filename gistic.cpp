@@ -11,6 +11,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stddef.h>
 
 #include "h5_read.h"
 #include "h5_write.h"
@@ -191,6 +192,26 @@ getcolvec(double **m, int col, int nr, double *result) {
 
 }
 
+int **
+create2dArrayInt(int rows, int cols) {
+
+    unsigned long total_mem = (rows * cols);
+    int **array = (int**) calloc(rows, sizeof(int*));
+    if (array == NULL) {
+        printf("error allcoating array\n");
+        exit(EXIT_FAILURE);
+    }
+    array[0] = (int*)calloc( total_mem, sizeof(int) );
+    if (array[0] == NULL) {
+        printf("error allcoating array\n");
+        exit(EXIT_FAILURE);
+    }
+    for (unsigned long i=1; i < rows; i++) array[i] = array[0]+i*cols;
+
+    return array;
+
+}
+
 double **
 create2dArray(int rows, int cols) {
 
@@ -206,10 +227,6 @@ create2dArray(int rows, int cols) {
         exit(EXIT_FAILURE);
     }
     for (unsigned long i=1; i < rows; i++) array[i] = array[0]+i*cols;
-
-    for (int i = 0; i < rows; i++)
-        for (int j = 0; j < cols; j++)
-            array[i][j] = 0;
 
     return array;
 
@@ -372,7 +389,7 @@ calc_amp_gscores(double **Y, int *chr_probes_start, int *chr_probes_end) {
         double *amp = (double*)calloc(len,sizeof(double));
 
         //for (sample = offset; sample < STOP_IDX; sample++) {
-        for (int sample = 0; sample < 383; sample++) {
+        for (int sample = 0; sample < NUM_ROWS; sample++) {
            double *y = getampthresh(Y, sample, start, end, .1);
            for (int i = 0; i < len; i++) {
                amp[i] += y[i];
@@ -382,7 +399,9 @@ calc_amp_gscores(double **Y, int *chr_probes_start, int *chr_probes_end) {
         }
 
         normalize(amp,len, BUFFER_SIZE);
-        for (int i = 0; i < len; i++) totalamp[c][i] = amp[i];
+        totalamp[c] = &amp[0];
+        // TODO: check this above
+        //for (int i = 0; i < len; i++) totalamp[c][i] = amp[i];
         free(amp);
         
     }
@@ -406,9 +425,87 @@ calculate_max(double **ampscores, int rows, int cols) {
     return max;
 }
 
+void
+norm_threshold(double *cndata, int len, double threshold, int numsamples) {
+
+    for (int i = 0; i < len; i++) {
+        if (cndata[i] >= threshold) {
+            cndata[i] = cndata[i]/numsamples;
+        } else {
+            cndata[i] = 0;
+        }
+    }
+
+}
+
+double *
+get_bins(double binwidth, double max) {
+
+    int numbins = (int)(max/binwidth);
+    double *bins = (double*)calloc(numbins, sizeof(double)); 
+    for (int i = 0; i < numbins; i++) {
+        bins[i] += binwidth;
+    }
+
+    return bins;
+}
+
+double *
+hist(double *data, int datalen, int bins, double binwidth){
+
+    double *hist= (double*)calloc(bins, sizeof(double));
+
+    // create histogram
+    for (int i=0; i < datalen; ++i){
+        //int bin=int( (data[i]-min)/((max-min)/(bins)) );
+        int bin=(int)(data[i]/binwidth);
+        hist[bin]++;
+    }
+
+    // normalize
+    for (int i = 0; i < bins; i++) {
+        hist[i] = hist[i]/datalen;
+    }
+    return hist;
+}
+
+int max(int n1, int n2) {
+    return (n1 > n2 ? n1 : n2);
+}
+
+void 
+conv1(const double v1[], size_t n1, const double v2[], size_t n2, double r[])
+{
+    for (size_t n = 0; n < n1 + n2 - 1; n++)
+        for (size_t k = 0; k < max(n1, n2); k++)
+            r[n] += (k < n1 ? v1[k] : 0) * (n - k < n2 ? v2[n - k] : 0);
+}
+
+void conv(const double *Signal, size_t SignalLen,
+          const double *Kernel, size_t KernelLen,
+          double *Result)
+{
+  size_t n;
+
+  for (n = 0; n < SignalLen + KernelLen - 1; n++)
+  {
+    size_t kmin, kmax, k;
+
+    Result[n] = 0;
+
+    kmin = (n >= KernelLen - 1) ? n - (KernelLen - 1) : 0;
+    kmax = (n < SignalLen - 1) ? n : SignalLen - 1;
+
+    for (k = kmin; k <= kmax; k++)
+    {
+      Result[n] += Signal[k] * Kernel[n - k];
+    }
+  }
+}
+
 int
 main(int argc, char **argv)
-{
+
     double starttime, endtime;
     starttime = MPI_Wtime();
     int ntasks, myrank;
@@ -437,6 +534,7 @@ main(int argc, char **argv)
     unsigned long y_nr, y_nc;
 
     double **Y = h5_read("filtered_probes.h5", 1, "/FilteredProbes", &y_nr, &y_nc);
+    double binwidth = .01;
 
     int probe, sample, tid, work_completed;
     work_completed = 0;
@@ -448,8 +546,30 @@ main(int argc, char **argv)
     if (NUM_ROWS - STOP_IDX < BLOCK_SIZE)
         STOP_IDX = NUM_ROWS;
 
-    double ** totalamp = calc_amp_gscores(Y, chr_probes_start, chr_probes_end);
-    double maxamp = calculate_max(totalamp, 22, 7685);
+    double ** totalamp  = calc_amp_gscores(Y, chr_probes_start, chr_probes_end);
+    double maxamp       = calculate_max(totalamp, 22, 7685);
+    printf("max amp = %f\n", maxamp);
+    int     numbins     = (int)(maxamp/binwidth);
+    double **sample_hist   = create2dArray(NUM_ROWS, numbins);
+
+    for (int i = 0; i < NUM_ROWS; i++) {
+        printf("sample: %d\n",i);
+        double *samplecnv = getrowvec(Y, i, NUM_COLS);
+        norm_threshold(samplecnv, NUM_COLS, .1, NUM_ROWS); 
+        double *bins = get_bins(binwidth, maxamp);
+        double * h      = hist(samplecnv, NUM_COLS, numbins, binwidth);
+        sample_hist[i]   = &h[0];
+        for (int k = 0; k < numbins; k++) printf("%f, ", sample_hist[i][k]);
+        printf("\n");
+
+        if (i > 3)
+            break;
+
+
+
+        // GenerateAmplificationNull
+        //getampthresh(double **m, int sample, int start, int end, double thresh) {
+    }
     printf ("max amp = %f\n", maxamp);
 
     /*
