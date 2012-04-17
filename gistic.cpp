@@ -1,11 +1,26 @@
 /******************************************************************************
-* FILE: rho.cpp
+* FILE: gistic.cpp
 * DESCRIPTION:
-*  Hybrid MPI/OpenMP implementation for calculating Pearson Correlation.
-*   
+*  Implementation for GISTIC algorithm.
+
+@article{Beroukhim11122007,
+    author = {Beroukhim, Rameen and Getz, Gad and Nghiemphu, Leia and Barretina, Jordi and Hsueh, Teli and Linhart, David and Vivanco, Igor and Lee, Jeffrey C. and Huang, Julie H. and Alexander, Sethu and Du, Jinyan and Kau, Tweeny and Thomas, Roman K. and Shah, Kinjal and Soto, Horacio and Perner, Sven and Prensner, John and Debiasi, Ralph M. and Demichelis, Francesca and Hatton, Charlie and Rubin, Mark A. and Garraway, Levi A. and Nelson, Stan F. and Liau, Linda and Mischel, Paul S. and Cloughesy, Tim F. and Meyerson, Matthew and Golub, Todd A. and Lander, Eric S. and Mellinghoff, Ingo K. and Sellers, William R.}, 
+    title = {Assessing the significance of chromosomal aberrations in cancer: Methodology and application to glioma}, 
+    volume = {104}, 
+    number = {50}, 
+    pages = {20007-20012}, 
+    year = {2007}, 
+    doi = {10.1073/pnas.0710052104}, 
+    URL = {http://www.pnas.org/content/104/50/20007.abstract}, 
+    eprint = {http://www.pnas.org/content/104/50/20007.full.pdf+html}, 
+    journal = {Proceedings of the National Academy of Sciences} 
+}
+
+
 *   
 * AUTHOR: Sanjay Agravat
 ******************************************************************************/
+
 #include <mpi.h>
 #include <omp.h>
 #include <math.h>
@@ -68,22 +83,22 @@ stddev(double *v, double avg, int n) {
 }
 
 double *
-sub(double *v, double avg, int n) {
+sub(double *v, double val, int n) {
 
     double *result = (double*)calloc(BUFFER_SIZE,sizeof(double));;
 
     for (int i = 0; i < n; i++) {
-        result[i] = v[i] - avg;
+        result[i] = v[i] - val;
     }
 
     return result;
 }
 
 void 
-sub(double *v, double avg, int n, double *result) {
+sub2(double *v, double val, int n) {
 
     for (int i = 0; i < n; i++) {
-        result[i] = v[i] - avg;
+        v[i] = v[i] - val;
     }
 }
 
@@ -473,6 +488,7 @@ int max(int n1, int n2) {
     return (n1 > n2 ? n1 : n2);
 }
 
+/*
 void 
 conv1(const double v1[], size_t n1, const double v2[], size_t n2, double r[])
 {
@@ -480,12 +496,15 @@ conv1(const double v1[], size_t n1, const double v2[], size_t n2, double r[])
         for (size_t k = 0; k < max(n1, n2); k++)
             r[n] += (k < n1 ? v1[k] : 0) * (n - k < n2 ? v2[n - k] : 0);
 }
+*/
 
-void conv(const double *Signal, size_t SignalLen,
-          const double *Kernel, size_t KernelLen,
-          double *Result)
-{
+double *
+conv(const double *Signal, size_t SignalLen,
+          const double *Kernel, size_t KernelLen) {
+
   size_t n;
+
+  double *Result = (double*)calloc(SignalLen+KernelLen,sizeof(double));
 
   for (n = 0; n < SignalLen + KernelLen - 1; n++)
   {
@@ -501,10 +520,55 @@ void conv(const double *Signal, size_t SignalLen,
       Result[n] += Signal[k] * Kernel[n - k];
     }
   }
+
+  return Result;
+}
+
+double *
+truncate(double *v, size_t n) {
+    double * newarr = (double*)calloc(n,sizeof(double));
+
+    memcpy(newarr, v, sizeof(double) * n);
+
+    return newarr;
+}
+
+void
+norm_by_sum(double *v, size_t n) {
+
+    double sum = 0;
+    for (int i = 0; i < n; i++) sum += v[i];
+    for (int i = 0; i < n; i++) v[i] = v[i]/sum;;
+}
+
+void 
+cumsum(double *v, size_t n) {
+
+    double sum = 0;
+    for (int i = 1; i < n; i++) v[i] = v[i-1] + v[i];
+}
+
+
+void 
+setfiltergt(double *v, size_t n, double threshold, double val) {
+
+    for (int i = 0; i < n; i++) 
+        if (v[i] > threshold) v[i] = val;
+    
+}
+
+void
+genpvalues(double *v, size_t n) {
+
+    norm_by_sum(v,n);
+    cumsum(v,n);
+    setfiltergt(v, n, 1.0, 1.0);
+    sub2(v,1,n);
+
 }
 
 int
-main(int argc, char **argv)
+main(int argc, char **argv) {
 
     double starttime, endtime;
     starttime = MPI_Wtime();
@@ -550,27 +614,37 @@ main(int argc, char **argv)
     double maxamp       = calculate_max(totalamp, 22, 7685);
     printf("max amp = %f\n", maxamp);
     int     numbins     = (int)(maxamp/binwidth);
-    double **sample_hist   = create2dArray(NUM_ROWS, numbins);
+    double **amphist = create2dArray(NUM_ROWS, numbins);
+    double *bins = get_bins(binwidth, maxamp);
 
     for (int i = 0; i < NUM_ROWS; i++) {
-        printf("sample: %d\n",i);
         double *samplecnv = getrowvec(Y, i, NUM_COLS);
         norm_threshold(samplecnv, NUM_COLS, .1, NUM_ROWS); 
-        double *bins = get_bins(binwidth, maxamp);
-        double * h      = hist(samplecnv, NUM_COLS, numbins, binwidth);
-        sample_hist[i]   = &h[0];
-        for (int k = 0; k < numbins; k++) printf("%f, ", sample_hist[i][k]);
-        printf("\n");
+        amphist[i]      = hist(samplecnv, NUM_COLS, numbins, binwidth);
 
-        if (i > 3)
-            break;
+        //for (int k = 0; k < numbins; k++) printf("%f, ", amphist[i][k]);
+        //printf("\n");
 
+        free(samplecnv);
 
-
-        // GenerateAmplificationNull
-        //getampthresh(double **m, int sample, int start, int end, double thresh) {
     }
-    printf ("max amp = %f\n", maxamp);
+    free(bins);
+
+    double *nulldist = (double*)calloc(NUM_ROWS*numbins,sizeof(double));
+    nulldist = &amphist[0][0];
+
+    for (int i = 0; i < NUM_ROWS; i++) {
+           nulldist = conv(nulldist, numbins*(i+1),&amphist[i][0], numbins);
+    }
+    nulldist = truncate(nulldist, numbins);
+    printf("before\n");
+    for (int k = 0; k < numbins; k++) printf("%f, ", nulldist[k]);
+    printf("\n");
+    printf("after\n");
+    genpvalues(nulldist,numbins);
+    for (int k = 0; k < numbins; k++) printf("%f, ", nulldist[k]);
+    printf("\n");
+
 
     /*
     for (int c = 0; c < 22; c++) {
@@ -608,6 +682,7 @@ main(int argc, char **argv)
     //for (int i = 0; i < NUM_ROWS; i++) {
         //printf("%s,%d\n", exprannot[i].gene, exprannot[i].chr);
     //}
+    free(nulldist);
     free(totalamp[0]);
     free(totalamp);
     free(exprannot);
