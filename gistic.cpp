@@ -59,6 +59,33 @@ typedef struct {
     int chr;
 } exprinfo;
 
+struct mem {
+   void *data;
+   size_t nbytes;
+} ;
+typedef struct mem mem;
+void *my_malloc(size_t n)
+{
+   mem *p;
+   p = (mem*)malloc( sizeof(*p) + n );
+   if(p == NULL) return NULL;
+   p->nbytes = n;
+   p->data     =   p + 1;        // tricky!
+   return p->data;
+}
+void my_free(void *memp)
+{
+    mem *p = (mem*) memp;
+    if(p == NULL) return ;        // behave just like free()
+    p--;                                    // tricky!
+    free(p);
+}
+size_t GetSize(void *memp)
+{
+    mem *p = (mem*)memp;
+    p--;                                 
+    return p->nbytes;
+}
 
 double 
 mean(double *v, int n) {
@@ -98,7 +125,7 @@ void
 sub2(double *v, double val, int n) {
 
     for (int i = 0; i < n; i++) {
-        v[i] = v[i] - val;
+        v[i] = val - v[i];
     }
 }
 
@@ -395,6 +422,8 @@ calc_amp_gscores(double **Y, int *chr_probes_start, int *chr_probes_end) {
      //for shared(Y,  BLOCK_SIZE, offset, work_completed) \
      //private(probe,sample, tid)
     double **totalamp = create2dArray(22,7685);
+    double max = 0;
+    int chr_max = 0;
     for (int c = 0; c < 22; c++) {
         int len = chr_probes_end[c] - chr_probes_start[c];
         int start = chr_probes_start[c];
@@ -403,9 +432,12 @@ calc_amp_gscores(double **Y, int *chr_probes_start, int *chr_probes_end) {
 
         double *amp = (double*)calloc(len,sizeof(double));
 
-        //for (sample = offset; sample < STOP_IDX; sample++) {
+        //for (int sample = 0; sample < 2; sample++) {
         for (int sample = 0; sample < NUM_ROWS; sample++) {
+           // the y elements contain a 1 if the threshold was met
+           // otherwise it has a 0
            double *y = getampthresh(Y, sample, start, end, .1);
+           // add 1 to the probe element if the sample met the threshold
            for (int i = 0; i < len; i++) {
                amp[i] += y[i];
            }
@@ -414,9 +446,9 @@ calc_amp_gscores(double **Y, int *chr_probes_start, int *chr_probes_end) {
         }
 
         normalize(amp,len, BUFFER_SIZE);
-        totalamp[c] = &amp[0];
+        //totalamp[c] = &amp[0];
         // TODO: check this above
-        //for (int i = 0; i < len; i++) totalamp[c][i] = amp[i];
+        for (int i = 0; i < len; i++) totalamp[c][i] = amp[i];
         free(amp);
         
     }
@@ -499,18 +531,38 @@ conv1(const double v1[], size_t n1, const double v2[], size_t n2, double r[])
 */
 
 double *
-conv(const double *Signal, size_t SignalLen,
-          const double *Kernel, size_t KernelLen) {
+conv2(double *h, double *x, size_t len1, size_t len2) {
+
+    int i, j;
+    double sum = 0;
+    double *y = (double*)calloc(len1+len2-1,sizeof(double));
+
+    for (i = 0; i < (len1 + len2) - 1; i++) {
+        sum = 0;
+        for (j = 0; j <= i; j++) {
+            sum += h[j] * x[i-j];
+        }
+        y[i] = sum;
+    }
+    free(h);
+    return y;
+}
+
+double *
+conv(double *Signal, size_t SignalLen,
+          double *Kernel, size_t KernelLen) {
 
   size_t n;
+  size_t kmin, kmax, k;
 
   double *Result = (double*)calloc(SignalLen+KernelLen,sizeof(double));
-
+  #pragma omp parallel for shared(SignalLen, KernelLen, Signal, Kernel, Result) \
+    private (n,k,kmin,kmax)
   for (n = 0; n < SignalLen + KernelLen - 1; n++)
   {
-    size_t kmin, kmax, k;
 
     Result[n] = 0;
+    //Signal[j] = 0;
 
     kmin = (n >= KernelLen - 1) ? n - (KernelLen - 1) : 0;
     kmax = (n < SignalLen - 1) ? n : SignalLen - 1;
@@ -518,9 +570,11 @@ conv(const double *Signal, size_t SignalLen,
     for (k = kmin; k <= kmax; k++)
     {
       Result[n] += Signal[k] * Kernel[n - k];
+      //Signal[j] += Signal[k] * Kernel[n - k];
     }
   }
 
+  free(Signal);
   return Result;
 }
 
@@ -567,6 +621,83 @@ genpvalues(double *v, size_t n) {
 
 }
 
+double **
+mapsignificance(double **ampscores, double binwidth, double *pvalues, size_t n) {
+
+    double **sig = create2dArray(NUM_ROWS,7685);
+
+    for (int i = 0; i < 22; i++) {
+       for (int k = 0; k < 7685; k++) {
+            int index = (int)(ampscores[i][k]/binwidth);
+            sig[i][k] = pvalues[index];
+       } 
+    }
+    return sig;
+}
+int comp (const void * elem1, const void * elem2) {
+    double f = *((double*)elem1);
+    double s = *((double*)elem2);
+    if (f > s) return  1;
+    if (f < s) return -1;
+    return 0;
+}
+
+
+double
+find_next_min(double *v, size_t len, size_t idx) {
+
+    double min = 999999;
+
+    #pragma omp parallel for shared(v, min, len, idx) 
+    for (size_t i = idx; i < len; i++) {
+        if (v[i] < min) {
+            min = v[i];
+        }
+    }
+
+    return min;
+
+}
+
+double *
+benjaminihochberg(double **pvalues2d) {
+
+    size_t len = NUM_ROWS * 7685;
+    double *pvalues = (double*)calloc(len,sizeof(double));
+    #pragma omp parallel for shared(pvalues,pvalues2d) 
+    for (int i = 0; i < NUM_ROWS; i++) {
+        for (int j = 0; j < 7685; j++) {
+            pvalues[j+i*7685] = pvalues2d[i][j];
+        }
+    }
+
+    qsort (pvalues, NUM_ROWS*7685, sizeof(*pvalues), comp);
+    double *scaled = (double*)calloc(len,sizeof(double));
+    for (int i = 0; i < len; i++) {
+        scaled[i] = (pvalues[i]*len)/i;
+    }
+    free(pvalues); 
+
+    double *qvalues= (double*)calloc(len,sizeof(double));
+    double min = 0;
+
+    for (int i = 0; i < len; i++) {
+        if (scaled[i] == min) {
+            qvalues[i] = min;
+            min = find_next_min(scaled, len, i+1);
+        }
+    }
+
+    return pvalues;
+    
+}
+
+void
+adjustpvalues(double **sig) {
+
+    double *pvalues = benjaminihochberg(sig);
+    free(pvalues);
+}
 int
 main(int argc, char **argv) {
 
@@ -598,7 +729,7 @@ main(int argc, char **argv) {
     unsigned long y_nr, y_nc;
 
     double **Y = h5_read("filtered_probes.h5", 1, "/FilteredProbes", &y_nr, &y_nc);
-    double binwidth = .01;
+    double binwidth = .001;
 
     int probe, sample, tid, work_completed;
     work_completed = 0;
@@ -610,83 +741,92 @@ main(int argc, char **argv) {
     if (NUM_ROWS - STOP_IDX < BLOCK_SIZE)
         STOP_IDX = NUM_ROWS;
 
-    double ** totalamp  = calc_amp_gscores(Y, chr_probes_start, chr_probes_end);
-    double maxamp       = calculate_max(totalamp, 22, 7685);
+    double **totalamp = calc_amp_gscores(Y, chr_probes_start, chr_probes_end);
+    double maxamp     = calculate_max(totalamp, 22, 7685);
+    int    numbins    = (int)(maxamp/binwidth);
+    double **amphist  = create2dArray(NUM_ROWS, numbins);
+    double *bins      = get_bins(binwidth, maxamp);
+
     printf("max amp = %f\n", maxamp);
-    int     numbins     = (int)(maxamp/binwidth);
-    double **amphist = create2dArray(NUM_ROWS, numbins);
-    double *bins = get_bins(binwidth, maxamp);
 
+    // ------------ Start Generate Amplification Null -----------------------//
+    // generate null distribution for amplification g-scores
     for (int i = 0; i < NUM_ROWS; i++) {
-        double *samplecnv = getrowvec(Y, i, NUM_COLS);
-        norm_threshold(samplecnv, NUM_COLS, .1, NUM_ROWS); 
-        amphist[i]      = hist(samplecnv, NUM_COLS, numbins, binwidth);
 
-        //for (int k = 0; k < numbins; k++) printf("%f, ", amphist[i][k]);
-        //printf("\n");
+        // geneome wide scores for sample i
+        double *samplecnv = getrowvec(Y, i, NUM_COLS);
+
+        // threshold values
+        norm_threshold(samplecnv, NUM_COLS, .1, NUM_ROWS); 
+
+        // histogram
+        amphist[i]      = hist(samplecnv, NUM_COLS, numbins, binwidth);
 
         free(samplecnv);
 
     }
     free(bins);
 
-    double *nulldist = (double*)calloc(NUM_ROWS*numbins,sizeof(double));
+    printf("num bins = %d\n", numbins);
+
+    double *nulldist = (double*)calloc(numbins,sizeof(double));
+    // initialize null distribution
     nulldist = &amphist[0][0];
 
-    for (int i = 0; i < NUM_ROWS; i++) {
-           nulldist = conv(nulldist, numbins*(i+1),&amphist[i][0], numbins);
+    printf("start convolution\n");
+    // convolve distributions across samples
+    for (int i = 1; i < NUM_ROWS; i++) {
+           //printf("conv[%d] - %d\n", i, numbins*(i+1));
+           nulldist = conv(nulldist, numbins*(i),&amphist[i][0], numbins);
     }
-    nulldist = truncate(nulldist, numbins);
-    printf("before\n");
-    for (int k = 0; k < numbins; k++) printf("%f, ", nulldist[k]);
-    printf("\n");
-    printf("after\n");
-    genpvalues(nulldist,numbins);
-    for (int k = 0; k < numbins; k++) printf("%f, ", nulldist[k]);
-    printf("\n");
+    printf("end convolution\n");
 
+    // truncate
+    nulldist = truncate(nulldist, numbins);
+    printf("end truncate\n");
+    // -------------- End Generate Amplification Null -------------------------//
+
+    printf("start pvals\n");
+    genpvalues(nulldist,numbins);
+    //for (int i = 0; i < numbins; i++) printf("%f,",nulldist[i]);
+    //printf("\n");
+    printf("end pvals\n");
+
+    printf("start mapsig\n");
+    double **sig = mapsignificance(totalamp, binwidth, nulldist, numbins);
+    printf("end mapsig\n");
 
     /*
     for (int c = 0; c < 22; c++) {
-        for (int p = 0; p < 20; p++){
-            printf("%f,", c,p,totalamp[c][p]);
+        for (int p = 0; p < 100; p++){
+            printf("%10f,", sig[c][p]);
+            if (p % 10 == 0) printf("\n");
         }
+        printf("\n");
         printf("\n");
     }
     */
 
+    adjustpvalues(sig);
+
     printf("********* %d FINISHED **********\n", myrank);
     endtime   = MPI_Wtime();
     printf("rank %d - elapse time - %f\n",myrank, endtime-starttime);
+
     free(Y[0]);
     free(Y);
 
-    /*
-    f = fopen("significant.txt", "a");
-    //#pragma omp parallel for shared(RHO,exprannot, records)
-    for (int i = 0; i < NUM_ROWS; i++) {
-        for (int j = 0; j < NUM_COLS; j++) {
-            double zscore = ztest(RHO[i][j],BUFFER_SIZE);
-            if (zscore > 5.0) {
+    free(sig[0]);
+    free(sig);
 
-                fprintf(f, "%d,%d,%f,%f,%d,%s,%d,%s\n", 
-                        i, j, zscore, RHO[i][j], records[j].chr, records[j].gene, exprannot[i].chr,exprannot[i].gene);
-                if (i*j%1000 == 0)
-                    printf("%d,%d,%f,%f,%d,%s,%d,%s\n", 
-                        i, j, zscore, RHO[i][j], records[j].chr, records[j].gene, exprannot[i].chr,exprannot[i].gene);
-            }
-        }
-    }
-    fclose(f);
-    */
-    //for (int i = 0; i < NUM_ROWS; i++) {
-        //printf("%s,%d\n", exprannot[i].gene, exprannot[i].chr);
-    //}
     free(nulldist);
+
     free(totalamp[0]);
     free(totalamp);
+
     free(exprannot);
     free(records);
+
     free(chr_probes_start);
     free(chr_probes_end);
 
