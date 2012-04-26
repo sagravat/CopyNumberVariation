@@ -428,7 +428,7 @@ calc_amp_gscores(double **Y, int *chr_probes_start, int *chr_probes_end) {
         int len = chr_probes_end[c] - chr_probes_start[c];
         int start = chr_probes_start[c];
         int end   = chr_probes_end[c];
-        //printf("len = %d, start = %d, end = %d\n", len, start, end);
+        printf("len = %d, start = %d, end = %d\n", len, start, end);
 
         double *amp = (double*)calloc(len,sizeof(double));
 
@@ -624,7 +624,7 @@ genpvalues(double *v, size_t n) {
 double **
 mapsignificance(double **ampscores, double binwidth, double *pvalues, size_t n) {
 
-    double **sig = create2dArray(NUM_ROWS,7685);
+    double **sig = create2dArray(23,7685);
 
     for (int i = 0; i < 22; i++) {
        for (int k = 0; k < 7685; k++) {
@@ -659,6 +659,26 @@ find_next_min(double *v, size_t len, size_t idx) {
 
 }
 
+int 
+order_array(double *pvalues, size_t len) {
+
+    int idx;
+    double max = -1;
+    #pragma omp parallel for shared(pvalues, len, idx, max) 
+    for (int i = 0; i < len; i++) {
+        if (pvalues[i] > max) {
+            max = pvalues[i];
+            idx = i;
+        }
+    }
+
+    double * temp = (double*)calloc(len-1,sizeof(double));
+    memcpy(temp,pvalues,(idx-1)*sizeof(double));
+    memcpy(temp,&pvalues[idx+1],(len-idx)*sizeof(double));
+    pvalues = temp;
+    free(temp);
+    return idx;
+}
 double *
 benjaminihochberg(double **pvalues2d) {
 
@@ -671,25 +691,39 @@ benjaminihochberg(double **pvalues2d) {
         }
     }
 
+
     qsort (pvalues, NUM_ROWS*7685, sizeof(*pvalues), comp);
     double *scaled = (double*)calloc(len,sizeof(double));
+
+    #pragma omp parallel for shared(pvalues,scaled,len) 
     for (int i = 0; i < len; i++) {
         scaled[i] = (pvalues[i]*len)/i;
+    }
+
+    int *order = (int*)calloc(len,sizeof(int));
+    for (int i = 0; i < len; i++) {
+        int idx = order_array(pvalues, len);
+        len--;
+        order[i] = idx;
+        printf("%d\n", i);
     }
     free(pvalues); 
 
     double *qvalues= (double*)calloc(len,sizeof(double));
     double min = 0;
 
-    for (int i = 0; i < len; i++) {
+    for (int i = 0; i < len-1; i++) {
         if (scaled[i] == min) {
             qvalues[i] = min;
             min = find_next_min(scaled, len, i+1);
+        } else {
+            qvalues[i] = min;
         }
     }
 
+    qvalues[len-1] = scaled[len-1];
+
     return pvalues;
-    
 }
 
 void
@@ -728,7 +762,7 @@ main(int argc, char **argv) {
 
     unsigned long y_nr, y_nc;
 
-    double **Y = h5_read("filtered_probes.h5", 1, "/FilteredProbes", &y_nr, &y_nc);
+    double **Y = h5_read("filtered_probes.h5", 1, -1,-1,"/FilteredProbes", &y_nr, &y_nc);
     double binwidth = .001;
 
     int probe, sample, tid, work_completed;
@@ -805,9 +839,24 @@ main(int argc, char **argv) {
         printf("\n");
         printf("\n");
     }
-    */
 
-    adjustpvalues(sig);
+    //adjustpvalues(sig);
+    for (int c = 0; c < 22; c++) {
+        int len = chr_probes_end[c] - chr_probes_start[c];
+        int start = chr_probes_start[c];
+        int end   = chr_probes_end[c];
+        for (int j = 0; j < len; j++) {
+             if (sig[c][j] < .000001) {
+                 int index = start + j;
+
+                 //printf("%s,%d,%.15f\n", records[index].gene, c+1,sig[c][j]);
+                 printf("%s\n", records[index].gene);
+
+             }
+        }
+
+    }
+    */
 
     printf("********* %d FINISHED **********\n", myrank);
     endtime   = MPI_Wtime();
