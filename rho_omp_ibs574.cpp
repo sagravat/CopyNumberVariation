@@ -12,8 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-//#include "h5_read.h"
-#include "h5_hyperslab.h"
+#include "h5_read.h"
 #include "h5_write.h"
 
 #define WORKTAG 1
@@ -22,16 +21,15 @@
 #define BUFFER_SIZE 383
 
 #define LINE_SIZE 32
-//#define NUM_ROWS 1594
-//#define NUM_COLS 7899
 #define NUM_ROWS 15946
 #define NUM_COLS 78995
+//#define NUM_ROWS 20004
+//#define NUM_COLS 78996
+//#define NUM_COLS 52664
 //#define NUM_ROWS 10
 //#define NUM_COLS 20
 #define WORK_SIZE NUM_ROWS*NUM_COLS
 
-
-int NUM_PROBES = 0;
 
 typedef struct {
     int probeid;
@@ -195,16 +193,35 @@ char *trimwhitespace(char *str)
   return str;
 }
 
-exprinfo *
-get_gene_expr_annot() {
+int
+main(int argc, char **argv)
+{
+    double starttime, endtime;
+    int ntasks, myrank;
+    char name[128];                      
+    int namelen;
+    MPI_Status status;
 
-    int numlines = 0;
-    char **glines = NULL;
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+    MPI_Comm_size(MPI_COMM_WORLD, &ntasks);
+
+    MPI_Get_processor_name(name,&namelen);
+
+    /* Get a few OpenMP parameters.                                               */
+    int O_P  = omp_get_num_procs();          /* get number of OpenMP processors       */
+    int O_T  = omp_get_num_threads();        /* get number of OpenMP threads          */
+    int O_ID = omp_get_thread_num();         /* get OpenMP thread ID                  */
+    //printf("name:%s   M_ID:%d  O_ID:%d  O_P:%d  O_T:%d\n", name,myrank,O_ID,O_P,O_T);
+
+    FILE *f;
     char line[LINE_SIZE];
+    int numlines = 0;
 
     exprinfo *exprannot = NULL;
-    FILE *f = fopen("gene_list.txt", "r");
+    char **glines = NULL;
 
+    f = fopen("gene_list.txt", "r");
     while(fgets(line, LINE_SIZE, f)) {
         glines = (char**)realloc(glines, sizeof(char*)*(numlines+1));
         glines[numlines] = strdup(line);
@@ -224,24 +241,14 @@ get_gene_expr_annot() {
         numlines++;
     }
     fclose(f);
+    f = fopen("probe_id_mapping.txt", "r");
+    numlines = 0;
+
     free(glines[0]);
     free(glines);
 
-    return exprannot;
-
-}
-
-probeinfo *
-get_probe_info() {
-
-    int numlines = 0;
-    char **glines = NULL;
-    char line[LINE_SIZE];
-
-    char **lines = NULL;
     probeinfo *records = NULL;
-
-    FILE *f = fopen("probe_id_mapping.txt", "r");
+    char **lines = NULL;
 
     while(fgets(line, LINE_SIZE, f)) {              
         lines = (char**)realloc(lines, sizeof(char*)*(numlines+1));
@@ -265,133 +272,96 @@ get_probe_info() {
         numlines++;
 
     }
-    NUM_PROBES = numlines;
     free(lines[0]);
     free(lines);
 
     fclose(f);
 
-    return records;
 
-}
+    int NUM_GENES = numlines;
+    unsigned long x_nr, x_nc, y_nr, y_nc;
 
+    double **X = h5_read("x.h5", 1, "/X",         &x_nr, &x_nc);
+    double **Y = h5_read("filtered_probes.h5", 1, "/FilteredProbes", &y_nr, &y_nc);
 
-int
-main(int argc, char **argv)
-{
-    double starttime, endtime;
-    int ntasks, myrank;
-    char name[128];                      
-    int namelen;
+    //printf("loaded X, num rows = %d, num cols = %d\n", x_nr, x_nc);
+    //printf("loaded Y, num rows = %d, num cols = %d\n", y_nr, y_nc);
 
-    MPI_Init(&argc, &argv);
-    MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
-    MPI_Comm_size(MPI_COMM_WORLD, &ntasks);
-
-    MPI_Get_processor_name(name,&namelen);
-
-    /* Get a few OpenMP parameters.                                               */
-    int O_P  = omp_get_num_procs();          /* get number of OpenMP processors       */
-    int O_T  = omp_get_num_threads();        /* get number of OpenMP threads          */
-    int O_ID = omp_get_thread_num();         /* get OpenMP thread ID                  */
-    //printf("name:%s   M_ID:%d  O_ID:%d  O_P:%d  O_T:%d\n", name,myrank,O_ID,O_P,O_T);
-    exprinfo *exprannot = get_gene_expr_annot();
-    probeinfo *records = get_probe_info();
-
+    unsigned long total_mem = (x_nr * y_nc);
+    double **RHO   = create2dArray(x_nr, y_nc);
+    
     int gene, probe, tid, work_completed;
     work_completed = 0;
 
     
-    int BLOCK_ROW_SIZE = NUM_ROWS/ntasks;
-    int BLOCK_COL_SIZE = NUM_COLS/ntasks;
+    int BLOCK_SIZE = NUM_ROWS/ntasks;
+    int offset = myrank*BLOCK_SIZE;
+    int STOP_IDX = offset+BLOCK_SIZE;
+    if (NUM_ROWS - STOP_IDX < BLOCK_SIZE)
+        STOP_IDX = NUM_ROWS;
 
-    double **X = hyperslabread("x.h5", "/X", BLOCK_ROW_SIZE, BUFFER_SIZE, 0,0);
-    double **Y = hyperslabread("filtered_probesT.h5", "/FilteredProbes", 
-                                BLOCK_COL_SIZE, BUFFER_SIZE, 0,0);
-    double **RHO = create2dArray(BLOCK_ROW_SIZE, BLOCK_COL_SIZE);
-
-    printf("for rank %d, with ntasks = %d, and BLOCK_SIZE = %d, BLOCK_COLS=%d, BUF=%d\n", 
-                 myrank, ntasks, BLOCK_ROW_SIZE, BLOCK_COL_SIZE, BUFFER_SIZE);
+   // printf("offset = %d, for rank %d, with ntasks = %d, and BLOCK_SIZE = %d, STOP_IDX = %d\n", 
+    //            offset, myrank, ntasks, BLOCK_SIZE, STOP_IDX);
 
     int num_sig_found = 0; 
-
     starttime = MPI_Wtime();
 
-    for (int task = 0; task < ntasks; task++) {
+    #pragma omp parallel \
+     for shared(X, Y, RHO, BLOCK_SIZE, offset, work_completed) \
+     private(probe,gene, tid)
+    for (gene = offset; gene < STOP_IDX; gene++) {
+       for (probe = 0; probe < NUM_COLS; probe++) {
+           double *x = getrowvec(X, gene, BUFFER_SIZE);
+           double *y = getcolvec(Y, probe, BUFFER_SIZE);
 
-        #pragma omp parallel \
-         for shared(X, Y, RHO, BLOCK_ROW_SIZE, BLOCK_COL_SIZE,ntasks,task) \
-         private(probe,gene, tid )
-        for (gene = 0; gene < BLOCK_ROW_SIZE; gene++) {
-           for (probe = 0; probe < BLOCK_COL_SIZE; probe++) {
-               double *x = getrowvec(X, gene, BUFFER_SIZE);
-               double *y = getrowvec(Y, probe, BUFFER_SIZE);
+           double avgx = mean(x, BUFFER_SIZE);
+           double * xcentered = sub(x, avgx, BUFFER_SIZE);
+                    
+           double avgy = mean(y, BUFFER_SIZE);
+           double * ycentered = sub(y, avgy, BUFFER_SIZE);
+           
+           double * prod_result = prod(xcentered, ycentered, BUFFER_SIZE);
+           double sum_prod = sum(prod_result, BUFFER_SIZE);
 
-               double avgx = mean(x, BUFFER_SIZE);
-               double * xcentered = sub(x, avgx, BUFFER_SIZE);
-                        
-               double avgy = mean(y, BUFFER_SIZE);
-               double * ycentered = sub(y, avgy, BUFFER_SIZE);
-               
-               double * prod_result = prod(xcentered, ycentered, BUFFER_SIZE);
-               double sum_prod = sum(prod_result, BUFFER_SIZE);
+           double stdX = stddev(x, avgx, BUFFER_SIZE);
+           double stdY = stddev(y, avgy, BUFFER_SIZE);
+           double rho  = sum_prod/((BUFFER_SIZE-1)*(stdX*stdY));
 
-               double stdX = stddev(x, avgx, BUFFER_SIZE);
-               double stdY = stddev(y, avgy, BUFFER_SIZE);
-               double rho  = sum_prod/((BUFFER_SIZE-1)*(stdX*stdY));
-
-               RHO[gene][probe] = rho;
-               
-               //if (work_completed % 100000 == 0) {
-                   //tid = omp_get_thread_num();
-                   //printf("rank = %d, work = %d, result[%d,%d] from %d = %f\n", myrank, work_completed,
-                    //    gene, probe, tid, rho);
-               //}
-               
-               //work_completed++;
-               free(x);
-               free(y);
-               free(xcentered);
-               free(ycentered);
-               free(prod_result);
-
+           RHO[gene][probe] = rho;
+           if (work_completed % 10000 == 0) {
+               tid = omp_get_thread_num();
+               printf("rank = %d, work = %d, result[%d,%d] from %d = %f\n", myrank, work_completed,
+                    gene, probe, tid, rho);
            }
-        }
-        //f = fopen("significant.txt", "a");
-        #pragma omp parallel for shared(RHO,exprannot, records)
-        for (int i = 0; i < BLOCK_ROW_SIZE; i++) {
-            for (int j = 0; j < BLOCK_COL_SIZE; j++) {
-            double zscore = ztest(RHO[i][j],BUFFER_SIZE);
-                if (zscore > 5.0) {
+           work_completed++;
+           free(x);
+           free(y);
+           free(xcentered);
+           free(ycentered);
+           free(prod_result);
 
-                //fprintf(f, "%d,%d,%f,%f,%d,%s,%d,%s\n", 
-                 //       i, j, zscore, RHO[i][j], records[j].chr, records[j].gene, exprannot[i].chr,exprannot[i].gene);
-                    //printf("%d,%d,%f,%f,%d,%s,%d,%s\n", 
-                     //   i, j, zscore, RHO[i][j], records[j].chr, records[j].gene, exprannot[i].chr,exprannot[i].gene);
-                }
+       }
+    }
+    //printf("********* %d FINISHED **********\n", myrank);
+
+    //f = fopen("significant.txt", "a");
+    #pragma omp parallel for shared(RHO,exprannot, records)
+    for (int i = 0; i < NUM_ROWS; i++) {
+        for (int j = 0; j < NUM_COLS; j++) {
+            double zscore = ztest(RHO[i][j],BUFFER_SIZE);
+            /*
+            if (zscore > 5.0) {
+
+                fprintf(f, "%d,%d,%f,%f,%d,%s,%d,%s\n", 
+                        i, j, zscore, RHO[i][j], records[j].chr, records[j].gene, exprannot[i].chr,exprannot[i].gene);
+                if (i*j%1000 == 0)
+                    printf("%d,%d,%f,%f,%d,%s,%d,%s\n", 
+                        i, j, zscore, RHO[i][j], records[j].chr, records[j].gene, exprannot[i].chr,exprannot[i].gene);
             }
-        }
-        //fclose(f);
-    
-        MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
-        MPI_Barrier(MPI_COMM_WORLD);
-        MPI_Request request;
-        MPI_Status status;
-        int prev = myrank - 1;
-        int next = myrank + 1;
-        if (myrank == 0) prev = ntasks - 1;
-        if (myrank == ntasks - 1) next = 0;
-        printf("rank[%d] sending to %d, and receiving from %d for iteration %d\n", myrank, next, prev,task+1);
-        MPI_Isend(&X[0][0], BLOCK_ROW_SIZE*BUFFER_SIZE, MPI_DOUBLE, next, 1, MPI_COMM_WORLD, &request);
-        MPI_Irecv(&X[0][0], BLOCK_ROW_SIZE*BUFFER_SIZE, MPI_DOUBLE, prev, 1, MPI_COMM_WORLD, &request);
-        MPI_Wait( &request, &status);
-        MPI_Barrier(MPI_COMM_WORLD);
-        if (myrank == 0) {
-            printf("completed %d out of %d iterations\n",task+1,ntasks);
+            */
         }
     }
-    printf("********* %d FINISHED **********\n", myrank);
-
+    //fclose(f);
     endtime   = MPI_Wtime();
     free(X[0]);
     free(X);

@@ -26,9 +26,30 @@ def arg_parser():
                          help='output file for ranked genes')
     parser.add_argument('-oug', '--output_unranked_genes', required=False,
                         help='output file for unranked genes')
-    args = parser.parse_args()
+    parser.add_argument('-gf', '--gistic_file', required=False,
+                        help='gistic results file')
+    parser.add_argument('-nf', '--not_found_file', required=False,
+                        help='genes not found in gistic')
 
-    return args
+    return parser.parse_args()
+
+def load_gene_data(filename):
+    f = open(filename,'rb')
+    csvreader=csv.reader(f)
+    filearray = []
+    filearray.extend(csvreader)
+    f.close()
+
+    return filearray
+
+def load_gistic_data(filename):
+    f = open(filename,'rb')
+    csvreader=csv.reader(f, delimiter='\t')
+    filearray = []
+    filearray.extend(csvreader)
+    f.close()
+
+    return filearray
 
 def read_gene_ranker(filename):
     f = open(filename,'rb')
@@ -102,14 +123,11 @@ if __name__ == "__main__":
                 if gene not in ranked_genes and gene not in unranked_genes:
                     generank = filter(lambda x: x[2] == gene, generanks)
                     if len(generank) > 0:
-                        #ranked_genes[gene] = (item, max_logr[i], min_logr[i], gene,int(chr),rho)
                         ranked_genes[gene] = [gene, int(chr), item, max_logr[i], min_logr[i], rho]
-                        #ranked_genes[gene].extend(generank[0])
                         ranked_genes[gene].extend([int(generank[0][0]),float(generank[0][1]),int(generank[0][3])] )
                     else:
-                        #unranked_genes[gene] = [item, max_logr[i], min_logr[i], gene,int(chr),rho]
                         unranked_genes[gene] = [gene, int(chr), item, max_logr[i], min_logr[i], rho]
-                        print gene, " NOT in gene list"
+                        #print gene, " NOT in gene list"
         elif args.type == "amp":
             if item > args.avg_thresh and max_logr[i] > args.extr_thresh:
                 row  = filearray[indices[i]]
@@ -119,23 +137,41 @@ if __name__ == "__main__":
                 if gene not in ranked_genes and gene not in unranked_genes:
                     generank = filter(lambda x: x[2] == gene, generanks)
                     if len(generank) > 0:
-                        #ranked_genes[gene] = [item, max_logr[i], min_logr[i], gene,int(chr),rho]
                         ranked_genes[gene] = [gene, int(chr), item, max_logr[i], min_logr[i], rho]
                         ranked_genes[gene].extend([int(generank[0][0]),float(generank[0][1]),int(generank[0][3])] )
                     else:
-                        #unranked_genes[gene] = [item, max_logr[i], min_logr[i], gene,int(chr),rho]
                         unranked_genes[gene] = [gene, int(chr), item, max_logr[i], min_logr[i], rho]
-                        print gene, " NOT in gene list"
+                        #print gene, " NOT in gene list"
         
     if args.output_unranked_genes:
         write_unranked(args.output_unranked_genes, OrderedDict(sorted(unranked_genes.items(), key=lambda x: x[1][5])))
+
     if args.output_ranked_genes:
         write_ranked(args.output_ranked_genes, OrderedDict(sorted(ranked_genes.items(), key=lambda x: x[1][6] )))
 
-    for key,values in sorted(ranked_genes.items(), key=lambda x: x[1][6]):
-        print values
+    if args.gistic_file:
+        gistic_data = load_gistic_data(args.gistic_file)
+        amplified_gistic_genes = [x[0] for x in gistic_data if x[1] == 'Amp']
+        del_gistic_genes = [x[0] for x in gistic_data if x[1] == 'Del']
+        if args.type == 'amp':
+            for gene in ranked_genes:
+                if gene not in amplified_gistic_genes:
+                    print gene
+        elif args.type == 'del':
+            for gene in ranked_genes:
+                if gene not in del_gistic_genes:
+                    print gene
 
-    print "\n"
+    if args.not_found_file:
+        genes_not_found = load_gene_data(args.not_found_file)
+        for gene in genes_not_found:
+            generank = filter(lambda x: x[2] == gene, generanks)
+            if len(generank) > 0:
+                print generank
+    #for key,values in sorted(ranked_genes.items(), key=lambda x: x[1][6]):
+        #print values
 
-    for key,values in sorted(unranked_genes.items(), key=lambda x: x[1][0]):
-        print values
+    #print "\n"
+
+    #for key,values in sorted(unranked_genes.items(), key=lambda x: x[1][0]):
+        #print values

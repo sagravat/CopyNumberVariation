@@ -7,15 +7,39 @@ project( MPI_CORRELATION )
     #set(HDF5_LIBS hdf5 hdf5_hl hdf5_cpp)
     find_package(HDF5 REQUIRED)
 
+
+if(TYPE)
+    message("TYPE EQUAL 1")
+    SET(CMAKE_CXX_COMPILER g++)
+    SET(CMAKE_BUILD_TYPE Release)
+   
+    set(DEBUG_SRCS h5dump.cpp h5_read.cpp h5_write.cpp )
+    set(HYPER_SRCS hyperread.cpp )
+   
+    add_executable( h5dump ${DEBUG_SRCS} )
+    add_executable( hyper ${HYPER_SRCS} )
+
+    target_link_libraries(h5dump ${HDF5_LIBRARIES})
+    target_link_libraries(hyper ${HDF5_LIBRARIES})
+
+
+else()
+    message("TYPE NOT EQUAL 1")
     SET(CMAKE_CXX_COMPILER mpicxx)
     SET(CMAKE_BUILD_TYPE Release)
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
    
-    set(SRCS rho.cpp h5_read.cpp h5_write.cpp )
-    set(OMP_SRCS rho_omp.cpp h5_read.cpp h5_write.cpp )
+    set(OMP_SRCS rho_omp.cpp h5_read.cpp h5_write.cpp h5_hyperslab.cpp )
+    set(TEST_SRCS rho_single_threaded.cpp h5_read.cpp h5_write.cpp )
+    set(GISTIC_SRCS gistic.cpp h5_read.cpp h5_write.cpp )
    
-    add_executable( rho ${SRCS} )
+    add_executable( rho_single_threaded ${TEST_SRCS} )
     add_executable( rho_omp ${OMP_SRCS} )
-    target_link_libraries(rho ${HDF5_LIBRARIES})
+    add_executable( gistic ${GISTIC_SRCS} )
+
     target_link_libraries(rho_omp ${HDF5_LIBRARIES})
+    target_link_libraries(rho_single_threaded ${HDF5_LIBRARIES})
+    target_link_libraries(gistic ${HDF5_LIBRARIES})
+
+endif()
     
