@@ -1,44 +1,3 @@
-   13  ./analyze.py -f chr_same.csv -t amp -at .35 -et .58 -gr tcga-generanker_1.csv 
-   14  ./analyze.py -f chr_same.csv -t amp -at .35 -et .58 -gr tcga-generanker_1.csv 
-   15  ./analyze.py -f chr_same.csv -t amp -at .35 -et .58 -gr tcga-generanker_1.csv 
-   16  ./analyze.py -f chr_same.csv -t amp -at .35 -et .58 -gr tcga-generanker_1.csv 
-   17  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv 
-   18  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv 
-   19  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv 
-   20  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv 
-   21  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv 
-   28  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv 
-   29  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv 
-   31  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   32  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   35  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   36  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   37  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   40  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   44  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   47  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   48  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   49  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   51  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   52  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   53  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   54  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   55  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   57  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   58  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   59  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   60  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   62  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   63  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv
-   64  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv -urg unranked_genes.csv
-   65  ./analyze.py -f chr_same.csv -t amp -at .25 -et .58 -gr tcga-generanker_1.csv -org ranked_genes.csv -oug unranked_genes.csv
-   67  ./analyze.py -f chr_same.csv -t del -at -.55 -et -.58 -gr tcga-generanker_1.csv -org ranked_genes_del.csv -oug unranked_genes_del.csv
-   72  ./analyze.py -f chr_same.csv -t del -at -.55 -et -.05 -gr tcga-generanker_1.csv -org ranked_genes_del.csv -oug unranked_genes_del.csv
-   73  ./analyze.py -f chr_same.csv -t del -at -.55 -et .85 -gr tcga-generanker_1.csv -org ranked_genes_del.csv -oug unranked_genes_del.csv
-   74  ./analyze.py -f chr_same.csv -t del -at -.55 -et 4.85 -gr tcga-generanker_1.csv -org ranked_genes_del.csv -oug unranked_genes_del.csv
-   75  ./analyze.py -f chr_same.csv -t del -at -.15 -et 4.85 -gr tcga-generanker_1.csv -org ranked_genes_del.csv -oug unranked_genes_del.csv
-   76  ./analyze.py -f chr_same.csv -t del -at -.15 -et 4.85 -gr tcga-generanker_1.csv -org ranked_genes_del.csv -oug unranked_genes_del.csv
-   77  ./analyze.py -f chr_same.csv -t del -at .35 -et 2.0 -gr tcga-generanker_1.csv -org ranked_genes_del.csv -oug unranked_genes_del.csv
    91  ./metagenecomp.py -f chr_same.csv -t del -at .35 -et 2.0 -gr tcga-generanker_1.csv -org ranked_genes_del.csv -oug unranked_genes_del.csv -gf GISTIC.Genes.txt 
    92  ./metagenecomp.py -f chr_same.csv -t del -at .35 -et 2.0 -gr tcga-generanker_1.csv -org ranked_genes_del.csv -oug unranked_genes_del.csv -gf GISTIC.Genes.txt 
    94  ./metagenecomp.py -f chr_same.csv -t del -at .35 -et 2.0 -gr tcga-generanker_1.csv -org ranked_genes_del.csv -oug unranked_genes_del.csv -gf GISTIC.Genes.txt 
@@ -69,3 +28,20 @@
   144  ./metagenecomp.py -f chr_same.csv -t del -at -.01 -et -.75 -gr tcga-generanker_1.csv -org del_ranked_genes.csv -oug del_unranked_genes.csv -gf GISTIC.Genes.txt > del_not_in_gistic.txt 
   145  ./metagenecomp.py -f chr_same.csv -t del -at .01 -et -.75 -gr tcga-generanker_1.csv -org ranked_genes_del.csv -oug unranked_genes_del.csv -nf del_not_in_gistic.txt 
 
+  261  sort -b -k6n,6 cleaned_amp_gene_list.csv 
+  262  sort -b 6n,6 cleaned_amp_gene_list.csv 
+  263  sort -t -k 6,6nr cleaned_amp_gene_list.csv 
+  264  sort -b -k 6,6nr cleaned_amp_gene_list.csv 
+  265  sort -k 6,6nr cleaned_amp_gene_list.csv 
+  266  sort -k 6,6nr cleaned_amp_gene_list.csv 
+  267  sort -t , -k 6,6nr cleaned_amp_gene_list.csv 
+  268  sort -t , -k 6,6nr cleaned_amp_gene_list.csv > amp_genes_sortbyrho.csv
+  269  vi amp_genes_sortbyrho.csv 
+  273  sort -b -k 6,6nr cleaned_del_gene_list.csv 
+  274  sort -t , -k6n,6 cleaned_del_gene_list.csv 
+  275  sort -t , -k7n,7 cleaned_del_gene_list.csv 
+  276  sort -t , -k7n,7 cleaned_del_gene_list.csv > del_regions_bygenerank.csv
+  278  sort -t , -k6n,6 cleaned_del_gene_list.csv
+  279  sort -t , -k 6,6nr cleaned_DEL_gene_list.csv 
+  280  sort -t , -k 6,6nr cleaned_del_gene_list.csv 
+  281  sort -t , -k 6,6nr cleaned_del_gene_list.csv > del_regions_byrho.csv
