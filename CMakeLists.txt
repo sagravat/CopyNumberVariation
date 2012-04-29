@@ -30,14 +30,23 @@ else()
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
    
     set(OMP_SRCS rho_omp.cpp h5_read.cpp h5_write.cpp h5_hyperslab.cpp )
+    set(PEARSON_SRCS pearson_small_block.cpp h5_read.cpp h5_write.cpp h5_hyperslab.cpp )
+    set(PEARSON_RING_SRCS pearson_block_ring.cpp h5_read.cpp h5_write.cpp h5_hyperslab.cpp )
+    set(PEARSON_HYPER_SRCS pearson_hyperslab.cpp h5_read.cpp h5_write.cpp h5_hyperslab.cpp )
     set(TEST_SRCS rho_single_threaded.cpp h5_read.cpp h5_write.cpp )
     set(GISTIC_SRCS gistic.cpp h5_read.cpp h5_write.cpp )
    
     add_executable( rho_single_threaded ${TEST_SRCS} )
     add_executable( rho_omp ${OMP_SRCS} )
+    add_executable( pearson_small_block ${PEARSON_SRCS} )
+    add_executable( pearson_block_ring ${PEARSON_RING_SRCS} )
+    add_executable( pearson_hyperslab ${PEARSON_HYPER_SRCS} )
     add_executable( gistic ${GISTIC_SRCS} )
 
     target_link_libraries(rho_omp ${HDF5_LIBRARIES})
+    target_link_libraries(pearson_small_block ${HDF5_LIBRARIES})
+    target_link_libraries(pearson_block_ring ${HDF5_LIBRARIES})
+    target_link_libraries(pearson_hyperslab ${HDF5_LIBRARIES})
     target_link_libraries(rho_single_threaded ${HDF5_LIBRARIES})
     target_link_libraries(gistic ${HDF5_LIBRARIES})
 

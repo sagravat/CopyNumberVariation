@@ -304,11 +304,12 @@ main(int argc, char **argv)
     
     int BLOCK_ROW_SIZE = NUM_ROWS/ntasks;
     int BLOCK_COL_SIZE = NUM_COLS/ntasks;
+    int y_offset = BLOCK_COL_SIZE*myrank;
 
     double **X = hyperslabread("x.h5", "/X", BLOCK_ROW_SIZE, BUFFER_SIZE, 0,0);
     double **Y = hyperslabread("filtered_probesT.h5", "/FilteredProbes", 
-                                BLOCK_COL_SIZE, BUFFER_SIZE, 0,0);
-    double **RHO = create2dArray(BLOCK_ROW_SIZE, BLOCK_COL_SIZE);
+                                BLOCK_COL_SIZE, BUFFER_SIZE, y_offset,0);
+    //double **RHO = create2dArray(BLOCK_ROW_SIZE, BLOCK_COL_SIZE);
 
     printf("for rank %d, with ntasks = %d, and BLOCK_SIZE = %d, BLOCK_COLS=%d, BUF=%d\n", 
                  myrank, ntasks, BLOCK_ROW_SIZE, BLOCK_COL_SIZE, BUFFER_SIZE);
@@ -320,7 +321,7 @@ main(int argc, char **argv)
     for (int task = 0; task < ntasks; task++) {
 
         #pragma omp parallel \
-         for shared(X, Y, RHO, BLOCK_ROW_SIZE, BLOCK_COL_SIZE,ntasks,task) \
+         for shared(X, Y, BLOCK_ROW_SIZE, BLOCK_COL_SIZE,ntasks,task) \
          private(probe,gene, tid )
         for (gene = 0; gene < BLOCK_ROW_SIZE; gene++) {
            for (probe = 0; probe < BLOCK_COL_SIZE; probe++) {
@@ -339,9 +340,9 @@ main(int argc, char **argv)
                double stdX = stddev(x, avgx, BUFFER_SIZE);
                double stdY = stddev(y, avgy, BUFFER_SIZE);
                double rho  = sum_prod/((BUFFER_SIZE-1)*(stdX*stdY));
-               double zscore = ztest(rho,BUFFER_SIZE);
 
                //RHO[gene][probe] = rho;
+               double zscore = ztest(rho, BUFFER_SIZE);
                
                //if (work_completed % 100000 == 0) {
                    //tid = omp_get_thread_num();
@@ -360,21 +361,19 @@ main(int argc, char **argv)
         }
         //f = fopen("significant.txt", "a");
         
-        /*
-        #pragma omp parallel for shared(RHO,exprannot, records)
-        for (int i = 0; i < BLOCK_ROW_SIZE; i++) {
-            for (int j = 0; j < BLOCK_COL_SIZE; j++) {
-            double zscore = ztest(RHO[i][j],BUFFER_SIZE);
-                if (zscore > 5.0) {
+        //#pragma omp parallel for shared(RHO,exprannot, records)
+        //for (int i = 0; i < BLOCK_ROW_SIZE; i++) {
+            //for (int j = 0; j < BLOCK_COL_SIZE; j++) {
+            //double zscore = ztest(RHO[i][j],BUFFER_SIZE);
+                //if (zscore > 5.0) {
 
                 //fprintf(f, "%d,%d,%f,%f,%d,%s,%d,%s\n", 
                  //       i, j, zscore, RHO[i][j], records[j].chr, records[j].gene, exprannot[i].chr,exprannot[i].gene);
                     //printf("%d,%d,%f,%f,%d,%s,%d,%s\n", 
                      //   i, j, zscore, RHO[i][j], records[j].chr, records[j].gene, exprannot[i].chr,exprannot[i].gene);
-                }
-            }
-        }
-        */
+                //}
+            ////}
+        //}
         //fclose(f);
     
         MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
@@ -407,10 +406,10 @@ main(int argc, char **argv)
     //}
     //printf("rank %d FINISHED\n",myrank);
     //h5_write(RHO, NUM_ROWS, NUM_COLS, "rho_omp.h5", "/rho");
-    free(RHO[0]);
+    //free(RHO[0]);
+    //free(RHO);
     free(exprannot);
     free(records);
-    free(RHO);
 
   MPI_Finalize();
   return 0;

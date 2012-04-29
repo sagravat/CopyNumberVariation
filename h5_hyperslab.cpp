@@ -11,6 +11,7 @@
 #include "h5_hyperslab.h"
 
 #define RANK_OUT     2
+#define DEBUG 0
 
 
 double **
@@ -54,7 +55,7 @@ hyperslabread(const char * FILE, const char *DATASETNAME,
 /* Allocate a contiguous chunk of memory for the array data values.  
    Use the sizeof the data type. */
 
-    data_out2[0] = (double*)malloc( cols*rows*sizeof(double) );
+    data_out2[0] = (double*)calloc( cols*rows, sizeof(double) );
 
 /* Set the pointers in the top-level (row) array to the
    correct memory locations in the data value chunk. */
@@ -72,24 +73,28 @@ hyperslabread(const char * FILE, const char *DATASETNAME,
 
  ************************************************************/  
 
+    /*
     for (j = 0; j < SLAB_ROWS; j++) {
         for (i = 0; i < SLAB_COLS; i++) {
                 data_out2[j][i] = 0;
         }
     } 
+    */
  
     /*
      * Open the file and the dataset.
      */
     file = H5Fopen (FILE, H5F_ACC_RDONLY, H5P_DEFAULT);
-    printf("before open dataset\n");
+    if (DEBUG)
+        printf("before open dataset\n");
     dataset = H5Dopen (file, DATASETNAME, H5P_DEFAULT);
 
     dataspace = H5Dget_space (dataset);    /* dataspace handle */
     rank      = H5Sget_simple_extent_ndims (dataspace);
     status_n  = H5Sget_simple_extent_dims (dataspace, dims_out, NULL);
-    printf("\nRank: %d\nDimensions: %lu x %lu \n", rank,
-       (unsigned long)(dims_out[0]), (unsigned long)(dims_out[1]));
+    if (DEBUG)
+        printf("\nRank: %d\nDimensions: %lu x %lu \n", rank,
+            (unsigned long)(dims_out[0]), (unsigned long)(dims_out[1]));
 
     /* 
      * Define hyperslab in the dataset. 
@@ -127,16 +132,6 @@ hyperslabread(const char * FILE, const char *DATASETNAME,
      */
     status = H5Dread(dataset, H5T_NATIVE_DOUBLE, memspace, dataspace,
                       H5P_DEFAULT, &data_out2[0][0]);
-
-
-
-    /*
-    for (j = 0; j < SLAB_ROWS; j++) {
-        for (i = 0; i < SLAB_COLS; i++) {
-            data_out2[j][i] = data_out[j][i];
-        }
-    }
-    */
 
 
 
